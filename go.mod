@@ -1,4 +1,4 @@
-module github.com/libp2p/go-mplex
+module github.com/vyzo/go-mplex
 
 require (
 	github.com/ipfs/go-log v0.0.1
