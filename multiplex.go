@@ -65,6 +65,8 @@ type Multiplex struct {
 
 	channels map[streamID]*Stream
 	chLock   sync.Mutex
+
+	pool pool.BufferPool
 }
 
 // NewMultiplex creates a new multiplexer session.
@@ -162,8 +164,8 @@ func (mp *Multiplex) sendMsg(ctx context.Context, header uint64, data []byte) er
 			return err
 		}
 	}
-	buf := pool.Get(len(data) + 20)
-	defer pool.Put(buf)
+	buf := mp.pool.Get(len(data) + 20)
+	defer mp.pool.Put(buf)
 
 	n := 0
 	n += binary.PutUvarint(buf[n:], header)
@@ -309,7 +311,7 @@ func (mp *Multiplex) handleIncoming() {
 			}
 
 			name := string(b)
-			pool.Put(b)
+			mp.pool.Put(b)
 
 			msch = mp.newStream(ch, name)
 			mp.chLock.Lock()
@@ -377,7 +379,7 @@ func (mp *Multiplex) handleIncoming() {
 		case messageTag:
 			if !ok {
 				// reset stream, return b
-				pool.Put(b)
+				mp.pool.Put(b)
 
 				// This is a perfectly valid case when we reset
 				// and forget about the stream.
@@ -391,7 +393,7 @@ func (mp *Multiplex) handleIncoming() {
 			msch.clLock.Unlock()
 			if remoteClosed {
 				// closed stream, return b
-				pool.Put(b)
+				mp.pool.Put(b)
 
 				log.Warningf("Received data from remote after stream was closed by them. (len = %d)", len(b))
 				go mp.sendResetMsg(msch.id.header(resetTag), false)
@@ -402,9 +404,9 @@ func (mp *Multiplex) handleIncoming() {
 			select {
 			case msch.dataIn <- b:
 			case <-msch.reset:
-				pool.Put(b)
+				mp.pool.Put(b)
 			case <-recvTimeout.C:
-				pool.Put(b)
+				mp.pool.Put(b)
 				log.Warningf("timed out receiving message into stream queue.")
 				// Do not do this asynchronously. Otherwise, we
 				// could drop a message, then receive a message,
@@ -412,7 +414,7 @@ func (mp *Multiplex) handleIncoming() {
 				msch.Reset()
 				continue
 			case <-mp.shutdown:
-				pool.Put(b)
+				mp.pool.Put(b)
 				return
 			}
 			if !recvTimeout.Stop() {
@@ -480,7 +482,7 @@ func (mp *Multiplex) readNext() ([]byte, error) {
 		return nil, nil
 	}
 
-	buf := pool.Get(int(l))
+	buf := mp.pool.Get(int(l))
 	n, err := io.ReadFull(mp.buf, buf)
 	if err != nil {
 		return nil, err
