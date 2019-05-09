@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	pool "github.com/libp2p/go-buffer-pool"
 	streammux "github.com/libp2p/go-stream-muxer"
 )
 
@@ -85,7 +84,7 @@ func (s *Stream) waitForData(ctx context.Context) error {
 
 func (s *Stream) returnBuffers() {
 	if s.exbuf != nil {
-		pool.Put(s.exbuf)
+		s.mp.pool.Put(s.exbuf)
 		s.exbuf = nil
 		s.extra = nil
 	}
@@ -98,7 +97,7 @@ func (s *Stream) returnBuffers() {
 			if read == nil {
 				continue
 			}
-			pool.Put(read)
+			s.mp.pool.Put(read)
 		default:
 			return
 		}
@@ -117,7 +116,7 @@ func (s *Stream) Read(b []byte) (int, error) {
 		s.extra = s.extra[n:]
 	} else {
 		if s.exbuf != nil {
-			pool.Put(s.exbuf)
+			s.mp.pool.Put(s.exbuf)
 		}
 		s.extra = nil
 		s.exbuf = nil
