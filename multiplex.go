@@ -47,6 +47,13 @@ const (
 	resetTag     = 6
 )
 
+type asyncWrite struct {
+	ctx    context.Context
+	header uint64
+	data   []byte
+	res    chan error
+}
+
 // Multiplex is a mplex session.
 type Multiplex struct {
 	con       net.Conn
@@ -59,7 +66,7 @@ type Multiplex struct {
 	shutdownErr  error
 	shutdownLock sync.Mutex
 
-	wrTkn chan struct{}
+	writeCh chan asyncWrite
 
 	nstreams chan *Stream
 
@@ -76,13 +83,12 @@ func NewMultiplex(con net.Conn, initiator bool) *Multiplex {
 		channels:  make(map[streamID]*Stream),
 		closed:    make(chan struct{}),
 		shutdown:  make(chan struct{}),
-		wrTkn:     make(chan struct{}, 1),
+		writeCh:   make(chan asyncWrite, 32),
 		nstreams:  make(chan *Stream, 16),
 	}
 
 	go mp.handleIncoming()
-
-	mp.wrTkn <- struct{}{}
+	go mp.handleOutgoing()
 
 	return mp
 }
@@ -145,19 +151,46 @@ func (mp *Multiplex) IsClosed() bool {
 }
 
 func (mp *Multiplex) sendMsg(ctx context.Context, header uint64, data []byte) error {
-	select {
-	case tkn := <-mp.wrTkn:
-		defer func() { mp.wrTkn <- tkn }()
-	case <-ctx.Done():
-		return ctx.Err()
+	if mp.isShutdown() {
+		return ErrShutdown
 	}
 
+	res := make(chan error, 1)
+	select {
+	case mp.writeCh <- asyncWrite{ctx: ctx, header: header, data: data, res: res}:
+		select {
+		case err := <-res:
+			return err
+		case <-mp.shutdown:
+			return ErrShutdown
+		}
+
+	case <-mp.shutdown:
+		return ErrShutdown
+	}
+}
+
+func (mp *Multiplex) handleOutgoing() {
+	for {
+		select {
+		case <-mp.shutdown:
+			return
+		case wr := <-mp.writeCh:
+			wr.res <- mp.doSendMsg(wr.ctx, wr.header, wr.data)
+		}
+	}
+}
+
+func (mp *Multiplex) doSendMsg(ctx context.Context, header uint64, data []byte) error {
 	if mp.isShutdown() {
 		return ErrShutdown
 	}
 
 	dl, hasDl := ctx.Deadline()
 	if hasDl {
+		if dl.Before(time.Now()) {
+			return context.DeadlineExceeded
+		}
 		if err := mp.con.SetWriteDeadline(dl); err != nil {
 			return err
 		}
