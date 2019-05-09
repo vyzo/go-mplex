@@ -38,9 +38,9 @@ func TestSlowReader(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 100 is large enough that the buffer of the underlying connection will
+	// 2 * ReceiveBufferSize is large enough that the buffer of the underlying connection will
 	// fill up.
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 2*ReceiveBufferSize; i++ {
 		_, err = sa.Write(mes)
 		if err != nil {
 			break

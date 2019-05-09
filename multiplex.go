@@ -22,7 +22,11 @@ var MaxMessageSize = 1 << 20
 // Max time to block waiting for a slow reader to read from a stream before
 // resetting it. Preferably, we'd have some form of back-pressure mechanism but
 // we don't have that in this protocol.
-var ReceiveTimeout = 5 * time.Second
+var ReceiveTimeout = 1 * time.Second
+
+// Maximum number of message that can be buffered before we determine the reader
+// is slow.
+var ReceiveBufferSize = 256
 
 // ErrShutdown is returned when operating on a shutdown session
 var ErrShutdown = errors.New("session shut down")
@@ -91,7 +95,7 @@ func (mp *Multiplex) newStream(id streamID, name string) (s *Stream) {
 	s = &Stream{
 		id:     id,
 		name:   name,
-		dataIn: make(chan []byte, 8),
+		dataIn: make(chan []byte, ReceiveBufferSize),
 		reset:  make(chan struct{}),
 		mp:     mp,
 	}
