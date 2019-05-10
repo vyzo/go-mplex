@@ -395,7 +395,7 @@ func (mp *Multiplex) handleIncoming() {
 				pool.Put(b)
 
 				log.Warningf("Received data from remote after stream was closed by them. (len = %d)", len(b))
-				go mp.sendResetMsg(msch.id.header(resetTag), false)
+				//go mp.sendResetMsg(msch.id.header(resetTag), false)
 				continue
 			}
 
